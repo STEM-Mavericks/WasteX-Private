@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block title %}Manual Entry{% endblock %}
+
+{% block content %}
+<h1>Manual Waste Data Entry</h1>
+<form method="POST" action="{{ url_for('manual_entry') }}">
+    <label for="dry_waste">Dry Waste:</label>
+    <input type="number" id="dry_waste" name="dry_waste" required>
+    
+    <label for="wet_waste">Wet Waste:</label>
+    <input type="number" id="wet_waste" name="wet_waste" required>
+    
+    <label for="weight">Weight:</label>
+    <input type="number" id="weight" name="weight" required>
+    
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}
