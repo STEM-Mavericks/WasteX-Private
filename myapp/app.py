@@ -14,6 +14,10 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+
 # OAuth Config For GitHub
 app.config['GITHUB_CLIENT_ID'] = os.getenv('GITHUB_CLIENT_ID')
 app.config['GITHUB_CLIENT_SECRET'] = os.getenv('GITHUB_CLIENT_SECRET')
+
+# Email Config
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
