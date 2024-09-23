@@ -5,9 +5,9 @@
 {% block content %}
 <h1>Register</h1>
 <form method="POST" action="{{ url_for('register') }}">
-    <input type="username" id="username" placeholder="Username">
-    <input type="email" name="" id="">
-    <input type="password" id="password" placeholder="Password">    
+    <input type="username" id="username" placeholder="Username" required>
+    <input type="email" id="email" placeholder="Email" required>
+    <input type="password" id="password" placeholder="Password" required>    
     <button type="submit">Register</button>
 </form>
 {% endblock %}
