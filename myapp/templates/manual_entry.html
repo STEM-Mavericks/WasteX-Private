@@ -1,19 +1,32 @@
-{% extends 'base.html' %}
-
-{% block title %}Manual Entry{% endblock %}
-
-{% block content %}
-<h1>Manual Waste Data Entry</h1>
-<form method="POST" action="{{ url_for('manual_entry') }}">
-    <label for="dry_waste">Dry Waste:</label>
-    <input type="number" id="dry_waste" name="dry_waste" required>
-    
-    <label for="wet_waste">Wet Waste:</label>
-    <input type="number" id="wet_waste" name="wet_waste" required>
-    
-    <label for="weight">Weight:</label>
-    <input type="number" id="weight" name="weight" required>
-    
-    <button type="submit">Submit</button>
-</form>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Entry - Automated Waste Segregation System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <nav>
+        <ul>
+            <li><a href="{{ url_for('index') }}">Home</a></li>
+            <li><a href="{{ url_for('manual_entry') }}">Manual Entry</a></li>
+            <li><a href="{{ url_for('login') }}">Login</a></li>
+            <li><a href="{{ url_for('register') }}">Register</a></li>
+        </ul>
+    </nav>
+    <div class="content">
+        <h1>Manual Waste Entry</h1>
+        <form method="POST">
+            {{ form.hidden_tag() }}
+            <label for="dry_waste">Dry Waste (kg):</label>
+            {{ form.dry_waste() }}
+            <label for="wet_waste">Wet Waste (kg):</label>
+            {{ form.wet_waste() }}
+            <label for="weight">Total Weight (kg):</label>
+            {{ form.weight() }}
+            {{ form.submit() }}
+        </form>
+    </div>
+</body>
+</html>
