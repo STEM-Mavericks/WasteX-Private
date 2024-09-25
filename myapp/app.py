@@ -99,6 +99,10 @@ def send_confirmation_email(user):
 
 This OTP will expire in 30 minutes.'''
     mail.send(msg)
+    
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 # Routes
 @app.route('/')
