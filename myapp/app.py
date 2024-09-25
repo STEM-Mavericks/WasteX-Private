@@ -1,17 +1,16 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, FloatField, SubmitField
-from wtforms.validators import DataRequired, Length, Email
+from wtforms import StringField, PasswordField, FloatField, SubmitField, BooleanField, ValidationError
+from wtforms.validators import DataRequired, Length, Email, EqualTo
 from authlib.integrations.flask_client import OAuth
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
-from flask_mail import Mail
-from datetime import datetime
+from flask_mail import Mail, Message
+from datetime import datetime, timedelta
 import os
 from flask_migrate import Migrate
-from functools import wraps
-from flask_migrate import Migrate
+from flask_login import LoginManager, UserMixin, login_user, current_user, logout_user, login_required
 
 # Load environment variables
 load_dotenv()
@@ -21,10 +20,6 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# OAuth Config For GitHub
-app.config['GITHUB_CLIENT_ID'] = os.getenv('GITHUB_CLIENT_ID')
-app.config['GITHUB_CLIENT_SECRET'] = os.getenv('GITHUB_CLIENT_SECRET')
 
 # Email Config
 app.config['MAIL_SERVER'] = 'smtp-mail.outlook.com'
@@ -36,32 +31,37 @@ app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_USERNAME')
 
 # Initialize extensions
 mail = Mail(app)
-oauth = OAuth(app)
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
 
-# OAuth GitHub setup
-github = oauth.register(
-    'github',
-    client_id=app.config['GITHUB_CLIENT_ID'],
-    client_secret=app.config['GITHUB_CLIENT_SECRET'],
-    access_token_url='https://github.com/login/oauth/access_token',
-    authorize_url='https://github.com/login/oauth/authorize',
-    api_base_url='https://api.github.com/',
-    client_kwargs={'scope': 'user:email'},
-)
+# User model
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), unique=True, nullable=False)
+    email = db.Column(db.String(150), unique=True, nullable=False)
+    password = db.Column(db.String(150), nullable=False)
+    confirmed = db.Column(db.Boolean, default=False)
+    otp = db.Column(db.String(6), nullable=True)
+    otp_expiry = db.Column(db.DateTime, nullable=True)
 
-# Decorator for login required
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            flash('You need to log in first.', 'danger')
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
+    def generate_otp(self):
+        import random
+        self.otp = str(random.randint(100000, 999999))
+        self.otp_expiry = datetime.utcnow() + timedelta(minutes=30)
+        db.session.commit()
+    
+    def verify_otp(self, otp):
+        if self.otp == otp and datetime.utcnow() < self.otp_expiry:
+            self.otp = None
+            self.otp_expiry = None
+            self.confirmed = True
+            db.session.commit()
+            return True
+        return False
 
-# Database models
+# WasteData model
 class WasteData(db.Model):
     __tablename__ = 'WasteData'  # Ensures case-sensitive table name
     id = db.Column(db.Integer, primary_key=True)
@@ -70,23 +70,18 @@ class WasteData(db.Model):
     wet_waste = db.Column(db.Float, nullable=False, default=0)
     weight = db.Column(db.Float, nullable=False, default=0)
 
-class User(db.Model):
-    __tablename__ = 'User'  # Ensures case-sensitive table name
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(150), unique=True, nullable=False)
-    email = db.Column(db.String(150), unique=True, nullable=False)
-    password = db.Column(db.String(150), nullable=False)
-
 # Forms
 class RegistrationForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired(), Length(min=2, max=150)])
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
+    confirm_password = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password')])
     submit = SubmitField('Register')
 
 class LoginForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Password', validators=[DataRequired()])
+    remember = BooleanField('Remember Me')
     submit = SubmitField('Login')
 
 class ManualEntryForm(FlaskForm):
@@ -94,6 +89,16 @@ class ManualEntryForm(FlaskForm):
     wet_waste = FloatField('Wet Waste (kg)', validators=[DataRequired()])
     weight = FloatField('Total Weight (kg)', validators=[DataRequired()])
     submit = SubmitField('Submit Data')
+
+# Email Functions
+def send_confirmation_email(user):
+    token = user.generate_otp()
+    msg = Message('Confirm Your Account', sender=app.config['MAIL_DEFAULT_SENDER'], recipients=[user.email])
+    msg.body = f'''To confirm your account, use the following OTP:
+{token}
+
+This OTP will expire in 30 minutes.'''
+    mail.send(msg)
 
 # Routes
 @app.route('/')
@@ -110,7 +115,7 @@ def login():
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data).first()
         if user and check_password_hash(user.password, form.password.data):
-            session['user_id'] = user.id
+            login_user(user, remember=form.remember.data)
             flash('Login successful!', 'success')
             return redirect(url_for('index'))
         flash('Login failed. Check your email and password.', 'danger')
@@ -124,9 +129,23 @@ def register():
         new_user = User(username=form.username.data, email=form.email.data, password=hashed_password)
         db.session.add(new_user)
         db.session.commit()
-        flash('Registration successful! Please log in.', 'success')
-        return redirect(url_for('login'))
+        send_confirmation_email(new_user)  # Send OTP for email confirmation
+        flash('Your account has been created! Please check your email for OTP to confirm your account.', 'success')
+        return redirect(url_for('verify_otp', user_id=new_user.id))
     return render_template('register.html', form=form)
+
+@app.route('/verify-otp/<int:user_id>', methods=['GET', 'POST'])
+def verify_otp(user_id):
+    user = User.query.get_or_404(user_id)
+    if request.method == 'POST':
+        otp = request.form.get('otp')
+        if user.verify_otp(otp):
+            login_user(user)
+            flash('Your email has been confirmed!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid or expired OTP', 'danger')
+    return render_template('verify_otp.html', user=user)
 
 @app.route('/manual_entry', methods=['GET', 'POST'])
 @login_required
@@ -141,32 +160,11 @@ def manual_entry():
     return render_template('manual_entry.html', form=form)
 
 @app.route('/logout')
+@login_required
 def logout():
-    session.pop('user_id', None)
+    logout_user()
     flash('You have been logged out.', 'success')
     return redirect(url_for('login'))
-
-@app.route('/github/login')
-def github_login():
-    redirect_uri = url_for('authorized', _external=True)
-    return github.authorize(redirect_uri=redirect_uri)
-
-@app.route('/github/callback')
-def authorized():
-    token = github.authorize_access_token()
-    user_info = github.get('user')
-    session['github_user'] = user_info.json()
-    flash('You are now logged in with GitHub!', 'success')
-    return redirect(url_for('index'))
-
-# Route to check DB connection and create tables if needed
-@app.route('/check_db')
-def check_db():
-    try:
-        db.create_all()  # This checks and creates all tables
-        return "Database is connected and tables created!"
-    except Exception as e:
-        return str(e)
 
 # Initialize database and run app
 if __name__ == '__main__':
