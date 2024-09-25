@@ -11,6 +11,7 @@ from datetime import datetime
 import os
 from flask_migrate import Migrate
 from functools import wraps
+from flask_migrate import Migrate
 
 # Load environment variables
 load_dotenv()
